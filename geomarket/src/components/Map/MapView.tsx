@@ -87,7 +87,7 @@ useEffect(() => {
     }
   }
   fetchStoresAndProducts();
-}, [setStores, setProducts]);
+}, []);
 
 
 
