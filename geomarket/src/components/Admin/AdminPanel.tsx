@@ -8,6 +8,7 @@ const AdminPanel: React.FC = () => {
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showEmailModal, setShowEmailModal] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null); // Nuevo estado
   const pendingStores = stores.filter(store => store.state === 'pending');
   const approvedStores = stores.filter(store => store.approved);
   const totalProducts = products.length;
@@ -18,7 +19,8 @@ const AdminPanel: React.FC = () => {
   const customers = uniqueUsers.filter(u => u.type === 'client');
 
   console.log('Unique users:', uniqueUsers, customers, storeOwners);
-   React.useEffect(() => {
+
+  React.useEffect(() => {
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -30,39 +32,45 @@ const AdminPanel: React.FC = () => {
         coordinates: shop.coordinates,
         ownerId: shop.user_id ?? shop.ownerId,
         approved: shop.status === 'accepted' || shop.approved,
+        state: shop.state ?? shop.status ?? 'pending', 
         address: shop.address ?? '',
         description: shop.description ?? ''
       }));
       setStores(shops);
 
-      // Cargar productos de todas las tiendas y adaptar
-      let allProducts: any[] = [];
-      for (const shop of shops) {
-        const rawProducts = await listProductsByShop(shop.id);
-        const products = rawProducts.map((p: any) => ({
-          id: p.id,
-          name: p.name,
-          price: p.price,
-          hasDiscount: p.has_discount ?? p.hasDiscount ?? false,
-          discountPrice: p.discount_price ?? p.discountPrice,
-          storeId: p.shop_id ?? p.storeId ?? shop.id,
-          description: p.description ?? '',
-          image: p.image ?? ''
-        }));
-        allProducts = allProducts.concat(products);
-      }
-      setProducts(allProducts);
+      // Cargar productos de todas las tiendas en paralelo
+      const productsArrays = await Promise.all(
+        shops.map(async (shop) => {
+          const rawProducts = await listProductsByShop(shop.id);
+          return rawProducts.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            price: p.price,
+            hasDiscount: p.has_discount ?? p.hasDiscount ?? false,
+            discountPrice: p.discount_price ?? p.discountPrice,
+            storeId: p.shop_id ?? p.storeId ?? shop.id,
+            description: p.description ?? '',
+            image: p.image ?? ''
+          }));
+        })
+      );
+      setProducts(productsArrays.flat());
 
-      // Cargar TODOS los usuarios
-      const allUsers = await listUsers();
-      setUsers(allUsers);
+      // Cargar TODOS los usuarios solo si no están en el estado
+      if (users.length === 0) {
+        const allUsers = await listUsers();
+        setUsers(allUsers);
+      }
     } catch (err) {
-      alert('Error cargando datos del backend'+err);
+      alert('Error cargando datos del backend' + err);
     }
     setLoading(false);
   };
   fetchData();
+  // eslint-disable-next-line
 }, []);
+
+
 const handleApproveStore = async (storeId: number) => {
   try {
     await updateShop(storeId, { approved: true, status: 'accepted', state: 'accepted' }); // <-- Añade state
@@ -95,7 +103,8 @@ const handleRejectStore = async (storeId: number) => {
   const sendMassEmail = async () => {
     try {
       await sendOffers();
-      alert(`Email masivo enviado a ${customers.length} clientes con ${totalOffers} ofertas disponibles!`);
+      setSuccessMessage(`¡Email masivo enviado a ${customers.length} clientes con ${totalOffers} ofertas disponibles!`);
+      setTimeout(() => setSuccessMessage(null), 4000); // Oculta el mensaje tras 4s
     } catch (err) {
       alert('Error al enviar emails masivos'+err);
     }
@@ -104,10 +113,15 @@ const handleRejectStore = async (storeId: number) => {
 
   if (loading) return <div className="p-6">Cargando datos...</div>;
 
-
   return (
-    
     <div className="p-6">
+      {/* Mensaje de éxito flotante */}
+      {successMessage && (
+        <div className="fixed top-6 right-6 z-50 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg animate-fade-in-out">
+          {successMessage}
+        </div>
+      )}
+
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-dark mb-2">Panel de Administración</h2>
         <p className="text-gray-600">Gestiona tiendas, usuarios y campañas de marketing</p>

@@ -13,35 +13,61 @@ const AddProductForm: React.FC<AddProductFormProps> = ({ storeId, onBack }) => {
     name: '',
     price: 0,
     hasDiscount: false,
-    discountPrice: 0,
+    discountPercentage: 0,
     description: ''
   });
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setIsLoading(true);
 
     if (!formData.name || formData.price <= 0) {
       setError('Por favor completa todos los campos obligatorios');
+      setIsLoading(false);
       return;
     }
 
-    if (formData.hasDiscount && formData.discountPrice >= formData.price) {
-      setError('El precio con descuento debe ser menor al precio original');
+    if (formData.hasDiscount && (formData.discountPercentage <= 0 || formData.discountPercentage >= 100)) {
+      setError('El porcentaje de descuento debe ser mayor a 0% y menor a 100%');
+      setIsLoading(false);
       return;
     }
 
-    addProduct({
-      name: formData.name,
-      price: formData.price,
-      hasDiscount: formData.hasDiscount,
-      discountPrice: formData.hasDiscount ? formData.discountPrice : undefined,
-      storeId,
-      description: formData.description
-    });
+    try {
+      const discountPrice = formData.hasDiscount 
+        ? formData.price * (1 - formData.discountPercentage / 100)
+        : undefined;
 
-    onBack();
+      await addProduct({
+        name: formData.name,
+        price: formData.price,
+        hasDiscount: formData.hasDiscount,
+        discount: formData.hasDiscount ? formData.discountPercentage : 0,
+        discountPrice,
+        storeId,
+        description: formData.description
+      });
+
+      onBack();
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message.includes('Database error: Product ID conflict')) {
+          setError('Error de base de datos: Conflicto de IDs. Por favor contacta al administrador para resolver este problema.');
+        } else if (error.message.includes('Database constraint error')) {
+          setError('Error de restricción de base de datos. Por favor verifica los datos ingresados.');
+        } else {
+          setError(error.message || 'Error al crear el producto. Por favor intenta de nuevo.');
+        }
+      } else {
+        setError('Error al crear el producto. Por favor intenta de nuevo.');
+      }
+      console.error('Error creating product:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -104,7 +130,7 @@ const AddProductForm: React.FC<AddProductFormProps> = ({ storeId, onBack }) => {
                 onChange={(e) => setFormData({ 
                   ...formData, 
                   hasDiscount: e.target.checked,
-                  discountPrice: e.target.checked ? formData.discountPrice : 0
+                  discountPercentage: e.target.checked ? formData.discountPercentage : 0
                 })}
                 className="rounded border-gray-300 text-primary focus:ring-primary"
               />
@@ -114,19 +140,28 @@ const AddProductForm: React.FC<AddProductFormProps> = ({ storeId, onBack }) => {
 
           {formData.hasDiscount && (
             <div>
-              <label htmlFor="discountPrice" className="block text-sm font-medium text-dark mb-2">
-                Precio con Descuento *
+              <label htmlFor="discountPercentage" className="block text-sm font-medium text-dark mb-2">
+                Porcentaje de descuento *
               </label>
-              <input
-                id="discountPrice"
-                type="number"
-                min="0"
-                step="0.01"
-                value={formData.discountPrice}
-                onChange={(e) => setFormData({ ...formData, discountPrice: parseFloat(e.target.value) || 0 })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-primary focus:border-primary"
-                placeholder="0.00"
-              />
+              <div className="relative">
+                <input
+                  id="discountPercentage"
+                  type="number"
+                  min="1"
+                  max="99"
+                  step="1"
+                  value={formData.discountPercentage}
+                  onChange={(e) => setFormData({ ...formData, discountPercentage: parseFloat(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 pr-8 border border-gray-300 rounded-md focus:outline-none focus:ring-primary focus:border-primary"
+                  placeholder="10"
+                />
+                <span className="absolute right-3 top-2 text-gray-500">%</span>
+              </div>
+              {formData.price > 0 && formData.discountPercentage > 0 && (
+                <p className="text-sm text-gray-600 mt-1">
+                  Precio con descuento: ${(formData.price * (1 - formData.discountPercentage / 100)).toFixed(2)}
+                </p>
+              )}
             </div>
           )}
 
@@ -148,16 +183,18 @@ const AddProductForm: React.FC<AddProductFormProps> = ({ storeId, onBack }) => {
             <button
               type="button"
               onClick={onBack}
-              className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-400 transition-colors"
+              disabled={isLoading}
+              className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="flex-1 bg-primary text-white py-2 px-4 rounded-md hover:bg-primary-hover transition-colors flex items-center justify-center space-x-2"
+              disabled={isLoading}
+              className="flex-1 bg-primary text-white py-2 px-4 rounded-md hover:bg-primary-hover transition-colors flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Package className="h-4 w-4" />
-              <span>Crear Producto</span>
+              <span>{isLoading ? 'Creando...' : 'Crear Producto'}</span>
             </button>
           </div>
         </form>

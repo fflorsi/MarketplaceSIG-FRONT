@@ -3,7 +3,7 @@ import { UserPlus, MapPin } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
 import { geocodeAddress, reverseGeocode } from '../../utils/geocoding';
 import * as backend from '../../api/backend'
-import { MapContainer, TileLayer, Marker } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Circle } from 'react-leaflet';
 import L from 'leaflet';
 
 interface RegisterFormProps {
@@ -22,84 +22,107 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onToggleMode }) => {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [markerPosition, setMarkerPosition] = useState<[number, number] | null>(null);
+  const [showMap, setShowMap] = useState(false);
+  const [requireMapConfirm, setRequireMapConfirm] = useState(false);
+  const [confirmedAddress, setConfirmedAddress] = useState('');
+
+  // Cuando el usuario mueve el marcador, solo actualiza la dirección en el input, pero no la confirmada
   useEffect(() => {
-  const updateMarker = async () => {
-    if (formData.address) {
-      try {
-        const { lat, lng } = await geocodeAddress(formData.address);
-        setMarkerPosition([lat, lng]);
-      } catch {
-        // Si la dirección no es válida, no muevas el marcador
+    const updateAddress = async () => {
+      if (markerPosition && showMap) {
+        const address = await reverseGeocode(markerPosition[0], markerPosition[1]);
+        setFormData(f => ({ ...f, address }));
       }
-    }
+    };
+    updateAddress();
+    // Solo depende de markerPosition y showMap
+  }, [markerPosition, showMap]);
+
+  const DraggableMarker = ({ position, setPosition }: { position: [number, number], setPosition: (pos: [number, number]) => void }) => {
+    const markerRef = React.useRef<L.Marker>(null);
+
+    return (
+      <Marker
+        draggable
+        position={position}
+        eventHandlers={{
+          dragend: (e) => {
+            const latlng = e.target.getLatLng();
+            setPosition([latlng.lat, latlng.lng]);
+          }
+        }}
+        ref={markerRef}
+      />
+    );
   };
-  updateMarker();
-}, [formData.address]);
 
-// Cuando el usuario mueve el marcador, actualiza la dirección
-useEffect(() => {
-  const updateAddress = async () => {
-    if (markerPosition) {
-      const address = await reverseGeocode(markerPosition[0], markerPosition[1]);
-      setFormData(f => ({ ...f, address }));
-    }
-  };
-  updateAddress();
-}, [markerPosition]);
 
-const DraggableMarker = ({ position, setPosition }: { position: [number, number], setPosition: (pos: [number, number]) => void }) => {
-  const markerRef = React.useRef<L.Marker>(null);
-
-  return (
-    <Marker
-      draggable
-      position={position}
-      eventHandlers={{
-        dragend: (e) => {
-          const latlng = e.target.getLatLng();
-          setPosition([latlng.lat, latlng.lng]);
+  const handleMapSearch = async () => {
+    setShowMap(true);
+    setRequireMapConfirm(false);
+    const address = formData.address;
+    if (address.length > 5) {
+      try {
+        let coords;
+        try {
+          coords = await geocodeAddress(address);
+        } catch {
+          // fallback: no-op
         }
-      }}
-      ref={markerRef}
-    />
-  );
-};
+        if (coords && coords.lat && coords.lng) {
+          setMarkerPosition([coords.lat, coords.lng]);
+          // Confirmar la dirección aquí
+          const normalized = await reverseGeocode(coords.lat, coords.lng);
+          setConfirmedAddress(normalized || address);
+        } else {
+          setError('No se pudo encontrar la ubicación, por favor ajústela manualmente en el mapa.');
+        }
+      } catch {
+        setError('No se pudo encontrar la ubicación, por favor ajústela manualmente en el mapa.');
+      }
+    } else {
+      setError('Ingrese una dirección válida para buscar en el mapa.');
+    }
+  };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setIsLoading(true);
 
-const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
-  setError('');
-  setIsLoading(true);
+    if (!formData.name || !formData.email || !formData.password || !confirmedAddress) {
+      setError('Por favor completa todos los campos y confirma la dirección.');
+      setIsLoading(false);
+      return;
+    }
+    if (!showMap) {
+      setShowMap(true);
+      setRequireMapConfirm(true);
+      setError('Por favor, confirme la dirección en el mapa antes de guardar.');
+      setIsLoading(false);
+      return;
+    }
 
-  if (!formData.name || !formData.email || !formData.password || !formData.address) {
-    setError('Por favor completa todos los campos');
-    setIsLoading(false);
-    return;
+    try {
+      // 1. Geocodifica la dirección confirmada para asegurarte que es válida
+      const { lat, lng } = await geocodeAddress(confirmedAddress);
+      // 2. Obtén la dirección normalizada (opcional, pero recomendado)
+      const normalizedAddress = await reverseGeocode(lat, lng);
+      await backend.register({
+        name: formData.name,
+        email: formData.email,
+        password: formData.password,
+        type: formData.type,
+        address: normalizedAddress || confirmedAddress, // Usa la dirección confirmada
+        radius: formData.radius, // km
+      });
+      onToggleMode();
+    } catch (err) {
+      setError('Error al procesar la dirección o registrar el usuario: ' + err);
+    } finally {
+      setIsLoading(false);
+    }
   }
-
-  try {
-    // 1. Geocodifica la dirección para asegurarte que es válida
-    const { lat, lng } = await geocodeAddress(formData.address);
-
-    // 2. Obtén la dirección normalizada (opcional, pero recomendado)
-    const normalizedAddress = await reverseGeocode(lat, lng);
-
-    await backend.register({
-      name: formData.name,
-      email: formData.email,
-      password: formData.password,
-      type: formData.type,
-      address: normalizedAddress || formData.address, // Usa la dirección normalizada si existe
-      radius: formData.radius, // km
-    });
-
-    onToggleMode();
-  } catch (err) {
-    setError('Error al procesar la dirección o registrar el usuario: ' + err);
-  } finally {
-    setIsLoading(false);
-  }
-}
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-light to-accent flex items-center justify-center p-4">
@@ -110,25 +133,9 @@ const handleSubmit = async (e: React.FormEvent) => {
           </div>
           <h2 className="mt-6 text-3xl font-extrabold text-dark">Crear Cuenta</h2>
           <p className="mt-2 text-sm text-dark/70">
-            Únete a nuestro marketplace
+            Únete a nuestro geomarket y descubre un mundo de oportunidades locales.
           </p>
         </div>
-        {markerPosition && (
-          <div className="mb-4">
-            <MapContainer center={markerPosition} zoom={16} style={{ height: 300, width: '100%' }}>
-              <TileLayer
-                attribution='&copy; OpenStreetMap contributors'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
-              <DraggableMarker position={markerPosition} setPosition={setMarkerPosition} />
-            </MapContainer>
-            <div className="text-sm text-gray-600 mt-2">
-              Arrastrá el marcador para ajustar tu ubicación.
-            </div>
-          </div>
-        )}
-
-  
 
         <form className="mt-8 space-y-6 bg-white p-8 rounded-lg shadow-lg" onSubmit={handleSubmit}>
           {error && (
@@ -136,7 +143,6 @@ const handleSubmit = async (e: React.FormEvent) => {
               {error}
             </div>
           )}
-
           <div className="space-y-4">
             <div>
               <label htmlFor="name" className="block text-sm font-medium text-dark">
@@ -199,34 +205,66 @@ const handleSubmit = async (e: React.FormEvent) => {
               </select>
             </div>
 
-            <div>
-              <label htmlFor="address" className="block text-sm font-medium text-dark">
-                Dirección
-              </label>
-              <input
-                id="address"
-                name="address"
-                type="text"
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-dark rounded-md focus:outline-none focus:ring-primary focus:border-primary focus:z-10 sm:text-sm"
-                placeholder="Ej: Av. Corrientes 1234, Buenos Aires"
-              />
+            <div className="flex items-center">
+              <div className="flex-1">
+                <label htmlFor="address" className="block text-sm font-medium text-dark">
+                  Dirección
+                </label>
+                <input
+                  id="address"
+                  name="address"
+                  type="text"
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-dark rounded-md focus:outline-none focus:ring-primary focus:border-primary focus:z-10 sm:text-sm"
+                  placeholder="Ej: Av. Corrientes 1234, Buenos Aires"
+                />
+              </div>
+              <button
+                type="button"
+                className="ml-2 flex items-center justify-center"
+                style={{ background: '#da2c38', borderRadius: 6, width: 40, height: 40 }}
+                onClick={handleMapSearch}
+                title="Confirmar ubicación en el mapa"
+              >
+                <MapPin color="white" size={22} />
+              </button>
             </div>
-
+            <div className="text-xs text-gray-700 mt-1">
+              Para confirmar la dirección, presiona el botón del pin rojo. La dirección que se guardará es:
+              <span className="block font-semibold text-primary mt-1">{confirmedAddress || 'Sin confirmar'}</span>
+            </div>
+            {showMap && markerPosition && (
+              <div className="mb-4">
+                <MapContainer center={markerPosition} zoom={16} style={{ height: 300, width: '100%' }}>
+                  <TileLayer
+                    attribution='&copy; OpenStreetMap contributors'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+                  <DraggableMarker position={markerPosition} setPosition={setMarkerPosition} />
+                  <Circle center={markerPosition} radius={formData.radius * 1000} pathOptions={{ color: 'blue', fillOpacity: 0.1 }} />
+                </MapContainer>
+                <div className="text-sm text-gray-600 mt-2">
+                  Arrastrá el marcador para ajustar tu ubicación.<br />
+                  {requireMapConfirm && (
+                    <div className="mt-2 text-red-600 font-semibold">Por favor, confirme la dirección y vuelva a presionar Crear Cuenta.</div>
+                  )}
+                </div>
+              </div>
+            )}
             <div>
               <label htmlFor="radius" className="block text-sm font-medium text-dark">
-                Radio de Interés (km)
+                Radio de Interés (km): <span className="font-semibold">{formData.radius}</span>
               </label>
               <input
                 id="radius"
                 name="radius"
-                type="number"
-                min="1"
-                max="50"
+                type="range"
+                min="0"
+                max="100"
                 value={formData.radius}
                 onChange={(e) => setFormData({ ...formData, radius: parseInt(e.target.value) })}
-                className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-dark rounded-md focus:outline-none focus:ring-primary focus:border-primary focus:z-10 sm:text-sm"
+                className="w-full"
               />
             </div>
           </div>

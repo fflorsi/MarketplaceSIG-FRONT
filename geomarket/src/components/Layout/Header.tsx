@@ -1,17 +1,16 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { MapPin, LogOut, User, ShoppingBag, Settings } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
-import EditProfileForm from '../Auth/EditProfileForm'; // Asegúrate de tener este componente
 
 interface HeaderProps {
   currentView: string;
   onViewChange: (view: string) => void;
+  onEditProfile: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ currentView, onViewChange }) => {
+const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, onEditProfile }) => {
   const { state, logout } = useApp();
   const { user } = state.auth;
-  const [showEdit, setShowEdit] = useState(false);
 
   if (!user) return null;
 
@@ -65,7 +64,7 @@ const Header: React.FC<HeaderProps> = ({ currentView, onViewChange }) => {
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-2 text-sm text-dark">
                 <button
-                  onClick={() => setShowEdit(true)}
+                  onClick={onEditProfile}
                   className="focus:outline-none"
                   title="Editar perfil"
                 >
@@ -87,9 +86,6 @@ const Header: React.FC<HeaderProps> = ({ currentView, onViewChange }) => {
           </div>
         </div>
       </header>
-      {showEdit && (
-        <EditProfileForm onBack={() => setShowEdit(false)} />
-      )}
     </>
   );
 };

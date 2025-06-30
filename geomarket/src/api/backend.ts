@@ -117,7 +117,24 @@ export async function createProduct(data: { name: string; price: number; has_dis
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error('Create product failed');
+  
+  if (!res.ok) {
+    let errorMessage = 'Create product failed';
+    try {
+      const errorData = await res.json();
+      errorMessage = errorData.message || errorMessage;
+    } catch {
+      // If response is not JSON (like HTML error page), get text
+      const errorText = await res.text();
+      if (errorText.includes('duplicate key value violates unique constraint')) {
+        errorMessage = 'Database error: Product ID conflict. Please contact the administrator.';
+      } else if (errorText.includes('IntegrityError')) {
+        errorMessage = 'Database constraint error. Please verify your data.';
+      }
+    }
+    throw new Error(errorMessage);
+  }
+  
   return res.json();
 }
 

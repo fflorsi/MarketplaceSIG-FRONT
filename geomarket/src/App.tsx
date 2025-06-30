@@ -8,12 +8,15 @@ import MapView from './components/Map/MapView';
 import StoreList from './components/Stores/StoreList';
 import MyStores from './components/Owner/MyStores';
 import AdminPanel from './components/Admin/AdminPanel';
+import EditProfileForm from './components/Auth/EditProfileForm';
+
 
 const AppContent: React.FC = () => {
   const { state } = useApp();
   const [showLanding, setShowLanding] = useState(true);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [currentView, setCurrentView] = useState('map');
+  const [showEditProfile, setShowEditProfile] = useState(false);
 
   // Mostrar landing page si no está autenticado y showLanding es true
   if (!state.auth.isAuthenticated && showLanding) {
@@ -27,6 +30,10 @@ const AppContent: React.FC = () => {
       : <RegisterForm onToggleMode={() => setAuthMode('login')} />;
   }
 
+  if (showEditProfile) {
+    return <EditProfileForm onBack={() => setShowEditProfile(false)} />;
+  }
+
   const renderCurrentView = () => {
     switch (currentView) {
       case 'map':
@@ -37,6 +44,8 @@ const AppContent: React.FC = () => {
         return <MyStores />;
       case 'admin':
         return <AdminPanel />;
+      case 'edit-profile':
+        return <EditProfileForm onBack={() => setCurrentView('map')} />;
       default:
         return <MapView />;
     }
@@ -44,7 +53,7 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Header currentView={currentView} onViewChange={setCurrentView} />
+      <Header currentView={currentView} onViewChange={setCurrentView} onEditProfile={() => setCurrentView('edit-profile')} />
       <main className="pt-4">
         {renderCurrentView()}
       </main>

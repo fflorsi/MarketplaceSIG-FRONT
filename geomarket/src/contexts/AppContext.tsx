@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
 import { AppState, User, Store, Product } from '../types';
 import { mockUsers, mockStores, mockProducts } from '../data/mockData';
+import { createProduct, listUsers } from '../api/backend';
 
 interface AppContextType {
   state: AppState;
@@ -9,7 +10,7 @@ interface AppContextType {
   register: (userData: Omit<User, 'id'>) => void;
   addStore: (storeData: Omit<Store, 'id' | 'approved'>) => void;
   approveStore: (storeId: number) => void;
-  addProduct: (productData: Omit<Product, 'id'>) => void;
+  addProduct: (productData: Omit<Product, 'id'>) => Promise<void>;
   updateProduct: (productId: number, productData: Partial<Product>) => void;
   getStoresByOwner: (ownerId: number) => Store[];
   getProductsByStore: (storeId: number) => Product[];
@@ -29,7 +30,8 @@ type Action =
   | { type: 'UPDATE_USER'; payload: Partial<User> }
   | { type: 'UPDATE_PRODUCT'; payload: { id: number; data: Partial<Product> } }
   | { type: 'SET_STORES'; payload: Store[] }
-  | { type: 'SET_PRODUCTS'; payload: Product[] };
+  | { type: 'SET_PRODUCTS'; payload: Product[] }
+  | { type: 'SET_USERS'; payload: User[] };
 
 
 const initialState: AppState = {
@@ -117,6 +119,11 @@ const appReducer = (state: AppState, action: Action): AppState => {
         ...state,
         products: action.payload
       };
+    case 'SET_USERS':
+      return {
+        ...state,
+        users: action.payload
+      };
 
     default:
       return state;
@@ -135,6 +142,16 @@ useEffect(() => {
   if (storedUser) {
     dispatch({ type: 'LOGIN', payload: JSON.parse(storedUser) });
   }
+  // Cargar usuarios reales desde el backend
+  async function fetchUsers() {
+    try {
+      const users = await listUsers();
+      dispatch({ type: 'SET_USERS', payload: users });
+    } catch (e) {
+      console.error('Error cargando usuarios reales:', e);
+    }
+  }
+  fetchUsers();
 }, []);
 
 
@@ -181,15 +198,36 @@ const addStore = (storeData: Omit<Store, 'id' | 'approved'>) => {
   };
 
 
-const addProduct = (productData: Omit<Product, 'id'>) => {
-  const maxId = state.products.length > 0
-    ? Math.max(...state.products.map(p => Number(p.id) || 0))
-    : 0;
-  const newProduct: Product = {
-    ...productData,
-    id: maxId + 1
-  };
-  dispatch({ type: 'ADD_PRODUCT', payload: newProduct });
+const addProduct = async (productData: Omit<Product, 'id'>) => {
+  try {
+    // Mapear los datos del frontend al formato esperado por el backend
+    const backendData = {
+      name: productData.name,
+      price: productData.price,
+      has_discount: productData.hasDiscount,
+      shop_id: productData.storeId,
+      ...(productData.hasDiscount && { discount: productData.discount })
+    };
+
+    const newProduct = await createProduct(backendData);
+    
+    // Convertir la respuesta del backend al formato del frontend
+    const frontendProduct: Product = {
+      id: newProduct.id,
+      name: newProduct.name,
+      price: newProduct.price,
+      hasDiscount: newProduct.has_discount || false,
+      discount: productData.discount || 0,
+      discountPrice: productData.discountPrice,
+      storeId: newProduct.shop_id,
+      description: productData.description
+    };
+
+    dispatch({ type: 'ADD_PRODUCT', payload: frontendProduct });
+  } catch (error) {
+    console.error('Error creating product:', error);
+    throw error;
+  }
 };
 
   const updateProduct = (productId: number, productData: Partial<Product>) => {
